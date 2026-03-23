@@ -14,7 +14,12 @@ helm repo update
 echo "==> Step 2: Create monitoring namespace"
 kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
 
-echo "==> Step 3: Install kube-prometheus-stack"
+echo "==> Step 3: Pre-create Grafana dashboard ConfigMap
+kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f "${MONITORING_DIR}/grafana-dashboard-configmap.yaml"
+echo "Dashboard ConfigMap pre-created."
+
+echo "==> Step 4: Install kube-prometheus-stack"
 helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
   --namespace monitoring \
   --values "${MONITORING_DIR}/kube-prometheus-stack-values.yaml" \
