@@ -138,7 +138,7 @@ count    = int(os.environ.get("COUNT", "0"))  # 0 = use rate/duration
 
 inserted = 0
 start    = time.time()
-print(f"Generator started: rate={rate}/s duration={duration}s lag={lag_sec}s count={count or 'unlimited'}")
+print(f"Generator started: rate={rate}/s duration={duration}s lag={lag_sec}s count={count if count else 0}")
 
 try:
     while True:
