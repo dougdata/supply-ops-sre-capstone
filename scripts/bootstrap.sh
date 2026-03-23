@@ -66,11 +66,13 @@ aws rds create-db-subnet-group \
   --subnet-ids $(echo $SUBNET_IDS | tr ',' ' ') \
   --region "$AWS_REGION" 2>/dev/null || echo "Subnet group already exists"
 
-# Get node security group (eksctl tags it with the nodegroup name)
-NODE_SG=$(aws ec2 describe-security-groups \
-  --filters "Name=vpc-id,Values=${VPC_ID}" "Name=tag:Name,Values=*ng-1*" \
-  --query 'SecurityGroups[0].GroupId' \
+# Use the cluster security group from EKS — this is always the SG
+# attached to node EC2 instances, regardless of eksctl tag naming.
+NODE_SG=$(aws eks describe-cluster \
+  --name "$CLUSTER_NAME" \
+  --query 'cluster.resourcesVpcConfig.clusterSecurityGroupId' \
   --output text --region "$AWS_REGION")
+echo "  Node SG: $NODE_SG"
 
 # Create RDS security group (idempotent)
 RDS_SG=$(aws ec2 create-security-group \
@@ -138,11 +140,23 @@ docker tag supply-worker:latest "$ECR_REGISTRY/supply-worker:latest"
 docker push "$ECR_REGISTRY/supply-worker:latest"
 
 # -------------------------------------------------------
-echo "==> Step 5: Apply database schema"
+echo "==> Step 5: Create Kubernetes namespace and secret"
 # -------------------------------------------------------
-# Run schema via a temporary pod inside the cluster (RDS is not publicly accessible)
+# Must happen BEFORE schema apply so the pod runs in the supply namespace,
+# which has connectivity to RDS via the node security group.
+kubectl create namespace supply --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl -n supply create secret generic supply-secrets \
+  --from-literal=DATABASE_URL="postgresql+psycopg://supplyadmin:${DB_PASSWORD}@${RDS_ENDPOINT}:5432/supply" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# -------------------------------------------------------
+echo "==> Step 6: Apply database schema"
+# -------------------------------------------------------
+# Runs in the supply namespace (created in Step 5) so it reaches RDS
+# through the cluster security group that's already allowed in the RDS SG.
 echo "Applying schema via in-cluster pod..."
-kubectl run schema-apply \
+kubectl -n supply run schema-apply \
   --image=postgres:17 \
   --restart=Never \
   --rm -i \
@@ -152,15 +166,6 @@ kubectl run schema-apply \
     -U supplyadmin \
     -d supply \
     < "$REPO_ROOT/platform/sql/schema.sql" && echo "Schema applied."
-
-# -------------------------------------------------------
-echo "==> Step 6: Create Kubernetes namespace and secret"
-# -------------------------------------------------------
-kubectl create namespace supply --dry-run=client -o yaml | kubectl apply -f -
-
-kubectl -n supply create secret generic supply-secrets \
-  --from-literal=DATABASE_URL="postgresql+psycopg://supplyadmin:${DB_PASSWORD}@${RDS_ENDPOINT}:5432/supply" \
-  --dry-run=client -o yaml | kubectl apply -f -
 
 # -------------------------------------------------------
 echo "==> Step 7: Deploy services via Helm"
@@ -182,13 +187,17 @@ echo "==> Step 8: Install monitoring stack"
 # -------------------------------------------------------
 bash "$REPO_ROOT/observability/install-monitoring.sh"
 
+# Ensure ServiceMonitors and SLO rules are applied even if
+# install-monitoring.sh timed out before reaching those steps
+echo "==> Step 8b: Apply ServiceMonitors and SLO rules"
+kubectl apply -f "$REPO_ROOT/observability/service-monitors.yaml"
+kubectl apply -f "$REPO_ROOT/observability/slo-rules.yaml"
+
 # -------------------------------------------------------
 echo "==> Step 9: Add GitHub Actions role to EKS aws-auth"
 # -------------------------------------------------------
-# Required so the CI/CD pipeline can run kubectl/helm after deployment
 GHA_ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/github-actions-supply-demo"
 
-# Check if role exists first
 if aws iam get-role --role-name github-actions-supply-demo \
      --region "$AWS_REGION" &>/dev/null; then
   kubectl -n kube-system patch configmap aws-auth --patch "
@@ -232,12 +241,8 @@ echo ""
 echo "  Grafana:  kubectl -n monitoring port-forward svc/kube-prometheus-stack-grafana 3000:80"
 echo "            http://localhost:3000  (admin / supply-demo-admin)"
 echo ""
-echo "  Generate events (run in a second terminal):"
-echo "    kubectl -n supply run event-generator \\"
-echo "      --image=python:3.11-slim --restart=Never \\"
-echo "      --env='DATABASE_URL=postgresql+psycopg://supplyadmin:${DB_PASSWORD}@${RDS_ENDPOINT}:5432/supply' \\"
-echo "      --command -- bash -c \\"
-echo "      'pip install sqlalchemy psycopg[binary] -q && python3 /scripts/generate_events.py --rate 2 --duration 300'"
+echo "  Generate events:"
+echo "    bash scripts/generate-events.sh steady"
 echo ""
 echo "  Teardown when done:  bash scripts/teardown.sh"
 echo "============================================================"
