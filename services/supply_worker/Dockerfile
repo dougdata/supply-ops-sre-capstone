@@ -7,7 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app
 
 COPY pyproject.toml /app/
-RUN pip install --no-cache-dir -U pip && pip install --no-cache-dir .
+RUN pip install --no-cache-dir "pip==24.3.1" && pip install --no-cache-dir .
 
 COPY worker /app/worker
 
