@@ -152,16 +152,16 @@ try:
                 conn.execute(text("""
                     INSERT INTO raw_events
                       (event_id,event_type,entity_type,entity_id,occurred_at,source,payload)
-                    VALUES (:eid,:et,:ent,:entid,:oat,:src,:payload::jsonb)
+                    VALUES (:eid,:et,:ent,:entid,:oat,:src,cast(:payload as jsonb))
                     ON CONFLICT (event_id) DO NOTHING
                 """), {"eid":eid,"et":tmpl[0],"ent":tmpl[1],"entid":entid,
                        "oat":occurred_at,"src":tmpl[2],
                        "payload":json.dumps(payload(tmpl[1],entid))})
                 conn.execute(text("""
                     INSERT INTO event_queue (event_id,status,available_at)
-                    VALUES (:eid,'PENDING',now())
+                    VALUES (:eid,:status,now())
                     ON CONFLICT DO NOTHING
-                """), {"eid":eid})
+                """), {"eid":eid,"status":"PENDING"})
                 inserted += 1
                 if count and inserted >= count:
                     break
