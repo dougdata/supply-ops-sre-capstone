@@ -84,8 +84,6 @@ jobs:
           tags: |
             ${{ env.ECR_REGISTRY }}/supply-api:${{ steps.meta.outputs.tag }}
             ${{ env.ECR_REGISTRY }}/supply-api:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Build & push supply-worker
         uses: docker/build-push-action@v5
@@ -95,8 +93,6 @@ jobs:
           tags: |
             ${{ env.ECR_REGISTRY }}/supply-worker:${{ steps.meta.outputs.tag }}
             ${{ env.ECR_REGISTRY }}/supply-worker:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
   # -------------------------------------------------------
   # Job 3: Deploy — helm upgrade after successful build
