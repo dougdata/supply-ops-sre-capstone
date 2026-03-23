@@ -1,0 +1,154 @@
+name: CI/CD — Build, Push, Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER: supply-demo
+  ECR_REGISTRY: 376218549913.dkr.ecr.us-east-1.amazonaws.com
+
+permissions:
+  id-token: write   # required for OIDC token request
+  contents: read
+
+jobs:
+  # -------------------------------------------------------
+  # Job 1: Lint — fast checks before building anything
+  # -------------------------------------------------------
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint supply-api Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: services/supply_api/Dockerfile
+          failure-threshold: warning
+
+      - name: Lint supply-worker Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: services/supply_worker/Dockerfile
+          failure-threshold: warning
+
+      - name: Lint Helm chart — supply-api
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          helm lint infra/helm/supply-api
+          helm lint infra/helm/supply-worker
+
+  # -------------------------------------------------------
+  # Job 2: Build & Push — only on pushes to main
+  # -------------------------------------------------------
+  build-and-push:
+    name: Build & Push to ECR
+    runs-on: ubuntu-latest
+    needs: lint
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tag }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::376218549913:role/github-actions-supply-demo
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Generate image tag
+        id: meta
+        run: |
+          # Short SHA gives a unique, traceable tag for every commit
+          TAG="${{ github.sha }}"
+          SHORT_TAG="${TAG:0:7}"
+          echo "tag=${SHORT_TAG}" >> $GITHUB_OUTPUT
+          echo "Image tag: ${SHORT_TAG}"
+
+      - name: Build & push supply-api
+        uses: docker/build-push-action@v5
+        with:
+          context: services/supply_api
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/supply-api:${{ steps.meta.outputs.tag }}
+            ${{ env.ECR_REGISTRY }}/supply-api:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push supply-worker
+        uses: docker/build-push-action@v5
+        with:
+          context: services/supply_worker
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/supply-worker:${{ steps.meta.outputs.tag }}
+            ${{ env.ECR_REGISTRY }}/supply-worker:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # -------------------------------------------------------
+  # Job 3: Deploy — helm upgrade after successful build
+  # -------------------------------------------------------
+  deploy:
+    name: Deploy to EKS
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: production   # adds a manual approval gate in GitHub UI if desired
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::376218549913:role/github-actions-supply-demo
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig for EKS
+        run: |
+          aws eks update-kubeconfig \
+            --name ${{ env.EKS_CLUSTER }} \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Deploy supply-api
+        run: |
+          helm upgrade --install supply-api infra/helm/supply-api \
+            --namespace supply \
+            --create-namespace \
+            --set image.repository=${{ env.ECR_REGISTRY }}/supply-api \
+            --set image.tag=${{ needs.build-and-push.outputs.image-tag }} \
+            --wait \
+            --timeout 5m
+
+      - name: Deploy supply-worker
+        run: |
+          helm upgrade --install supply-worker infra/helm/supply-worker \
+            --namespace supply \
+            --create-namespace \
+            --set image.repository=${{ env.ECR_REGISTRY }}/supply-worker \
+            --set image.tag=${{ needs.build-and-push.outputs.image-tag }} \
+            --wait \
+            --timeout 5m
+
+      - name: Verify rollout
+        run: |
+          kubectl -n supply rollout status deployment/supply-api --timeout=3m
+          kubectl -n supply rollout status deployment/supply-worker --timeout=3m
+          echo "--- Pod status ---"
+          kubectl -n supply get pods
