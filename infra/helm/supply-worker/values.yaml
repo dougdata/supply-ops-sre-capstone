@@ -1,0 +1,36 @@
+replicaCount: 1
+
+image:
+  repository: your-ecr-repo/supply-worker
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: false
+  name: ""
+
+service:
+  type: ClusterIP
+  metricsPort: 9102
+
+env:
+  SERVICE_NAME: "supply-worker"
+  LOG_LEVEL: "INFO"
+  WORKER_METRICS_PORT: "9102"
+  WORKER_POLL_INTERVAL_SEC: "1.0"
+  WORKER_MAX_ATTEMPTS: "5"
+  # OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
+
+database:
+  secretName: "supply-secrets"
+  secretKey: "DATABASE_URL"
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+extraEnv: []

@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "supply-worker.fullname" . }}
+  labels:
+    {{- include "supply-worker.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "supply-worker.fullname" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "supply-worker.fullname" . }}
+        {{- include "supply-worker.labels" . | nindent 8 }}
+    spec:
+      {{- if or .Values.serviceAccount.create .Values.serviceAccount.name }}
+      serviceAccountName: {{ default (include "supply-worker.fullname" .) .Values.serviceAccount.name }}
+      {{- end }}
+      containers:
+        - name: supply-worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.service.metricsPort }}
+          env:
+            - name: SERVICE_NAME
+              value: {{ .Values.env.SERVICE_NAME | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.env.LOG_LEVEL | quote }}
+            - name: WORKER_METRICS_PORT
+              value: {{ .Values.env.WORKER_METRICS_PORT | quote }}
+            - name: WORKER_POLL_INTERVAL_SEC
+              value: {{ .Values.env.WORKER_POLL_INTERVAL_SEC | quote }}
+            - name: WORKER_MAX_ATTEMPTS
+              value: {{ .Values.env.WORKER_MAX_ATTEMPTS | quote }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.secretName | quote }}
+                  key: {{ .Values.database.secretKey | quote }}
+            {{- if .Values.env.OTEL_EXPORTER_OTLP_ENDPOINT }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.env.OTEL_EXPORTER_OTLP_ENDPOINT | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

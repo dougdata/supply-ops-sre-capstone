@@ -1,0 +1,221 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: supply-slo-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  supply-slo.json: |
+    {
+      "title": "Supply SRE — SLO Dashboard",
+      "uid": "supply-slo-001",
+      "schemaVersion": 38,
+      "refresh": "30s",
+      "time": { "from": "now-6h", "to": "now" },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Worker Lag SLO — Error Budget Remaining",
+          "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "orientation": "auto",
+            "textMode": "auto",
+            "colorMode": "background"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red",    "value": null },
+                  { "color": "yellow", "value": 0.25 },
+                  { "color": "green",  "value": 0.50 }
+                ]
+              }
+            }
+          },
+          "targets": [{
+            "expr": "supply:worker_lag_slo:error_budget_remaining",
+            "legendFormat": "Error budget remaining"
+          }]
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Worker Availability SLO — Error Budget Remaining",
+          "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "colorMode": "background"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red",    "value": null },
+                  { "color": "yellow", "value": 0.25 },
+                  { "color": "green",  "value": 0.50 }
+                ]
+              }
+            }
+          },
+          "targets": [{
+            "expr": "supply:worker_availability_slo:error_budget_remaining",
+            "legendFormat": "Error budget remaining"
+          }]
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Worker p95 Lag (current)",
+          "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "colorMode": "background"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green",  "value": null },
+                  { "color": "yellow", "value": 20 },
+                  { "color": "red",    "value": 30 }
+                ]
+              }
+            }
+          },
+          "targets": [{
+            "expr": "supply_worker_lag_p95_seconds{service=\"supply-worker\"}",
+            "legendFormat": "p95 lag"
+          }]
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Worker Backlog (current)",
+          "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "colorMode": "background"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green",  "value": null },
+                  { "color": "yellow", "value": 50 },
+                  { "color": "red",    "value": 100 }
+                ]
+              }
+            }
+          },
+          "targets": [{
+            "expr": "supply_worker_backlog_total{service=\"supply-worker\"}",
+            "legendFormat": "backlog"
+          }]
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Worker p95 Lag vs SLO Target (30s)",
+          "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+          "fieldConfig": {
+            "defaults": { "unit": "s" },
+            "overrides": [{
+              "matcher": { "id": "byName", "options": "SLO target" },
+              "properties": [
+                { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } },
+                { "id": "custom.lineStyle", "value": { "dash": [10, 10], "fill": "dash" } }
+              ]
+            }]
+          },
+          "targets": [
+            {
+              "expr": "supply_worker_lag_p95_seconds{service=\"supply-worker\"}",
+              "legendFormat": "p95 lag"
+            },
+            {
+              "expr": "vector(30)",
+              "legendFormat": "SLO target"
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Event Processing Rate (events/sec)",
+          "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+          "fieldConfig": {
+            "defaults": { "unit": "ops" }
+          },
+          "targets": [{
+            "expr": "supply:worker_events_processed:rate5m",
+            "legendFormat": "events/sec"
+          }]
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "SLI — Worker Lag Good Ratio (5m window)",
+          "description": "1.0 = all requests within SLO. Target: 0.995",
+          "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0,
+              "max": 1
+            },
+            "overrides": [{
+              "matcher": { "id": "byName", "options": "SLO target" },
+              "properties": [
+                { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } },
+                { "id": "custom.lineStyle", "value": { "dash": [10, 10], "fill": "dash" } }
+              ]
+            }]
+          },
+          "targets": [
+            {
+              "expr": "supply:worker_lag_sli:ratio_rate5m",
+              "legendFormat": "SLI (5m)"
+            },
+            {
+              "expr": "vector(0.995)",
+              "legendFormat": "SLO target"
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "Worker Availability — Replicas Available",
+          "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red",   "value": 0 },
+                  { "color": "green", "value": 1 }
+                ]
+              }
+            }
+          },
+          "targets": [{
+            "expr": "kube_deployment_status_replicas_available{namespace=\"supply\", deployment=\"supply-worker\"}",
+            "legendFormat": "available replicas"
+          }]
+        }
+      ]
+    }

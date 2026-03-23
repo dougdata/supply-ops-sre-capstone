@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "supply-api.fullname" . }}
+  labels:
+    {{- include "supply-api.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "supply-api.fullname" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "supply-api.fullname" . }}
+        {{- include "supply-api.labels" . | nindent 8 }}
+    spec:
+      {{- if or .Values.serviceAccount.create .Values.serviceAccount.name }}
+      serviceAccountName: {{ default (include "supply-api.fullname" .) .Values.serviceAccount.name }}
+      {{- end }}
+      containers:
+        - name: supply-api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+          env:
+            - name: SERVICE_NAME
+              value: {{ .Values.env.SERVICE_NAME | quote }}
+            - name: APP_VERSION
+              value: {{ .Values.env.APP_VERSION | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.env.LOG_LEVEL | quote }}
+            - name: DB_POOL_SIZE
+              value: {{ .Values.env.DB_POOL_SIZE | quote }}
+            - name: DB_MAX_OVERFLOW
+              value: {{ .Values.env.DB_MAX_OVERFLOW | quote }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.secretName | quote }}
+                  key: {{ .Values.database.secretKey | quote }}
+            {{- if .Values.env.OTEL_EXPORTER_OTLP_ENDPOINT }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.env.OTEL_EXPORTER_OTLP_ENDPOINT | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.livenessPath }}
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readinessPath }}
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

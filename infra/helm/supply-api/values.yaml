@@ -1,0 +1,47 @@
+replicaCount: 1
+
+image:
+  repository: your-ecr-repo/supply-api
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+serviceAccount:
+  create: false
+  name: ""
+
+env:
+  SERVICE_NAME: "supply-api"
+  APP_VERSION: "0.1.0"
+  LOG_LEVEL: "INFO"
+  DB_POOL_SIZE: "5"
+  DB_MAX_OVERFLOW: "10"
+  # OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
+
+database:
+  secretName: "supply-secrets"
+  secretKey: "DATABASE_URL"
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+probes:
+  livenessPath: /health
+  readinessPath: /ready
+
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 70
+
+extraEnv: []

@@ -1,0 +1,41 @@
+---
+# ServiceMonitor for supply-worker
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: supply-worker
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames:
+      - supply
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: supply-worker
+  endpoints:
+    - port: metrics
+      interval: 15s
+      path: /metrics
+
+---
+# ServiceMonitor for supply-api
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: supply-api
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames:
+      - supply
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: supply-api
+  endpoints:
+    - port: metrics
+      interval: 15s
+      path: /metrics

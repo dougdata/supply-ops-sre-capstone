@@ -1,0 +1,20 @@
+[project]
+name = "supply-api"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi==0.115.0",
+  "uvicorn[standard]==0.30.6",
+  "pydantic==2.8.2",
+  "sqlalchemy==2.0.34",
+  "psycopg[binary]==3.2.2",
+  "prometheus-client==0.20.0",
+  "opentelemetry-api==1.26.0",
+  "opentelemetry-sdk==1.26.0",
+  "opentelemetry-exporter-otlp==1.26.0",
+  "opentelemetry-instrumentation-fastapi==0.47b0",
+  "opentelemetry-instrumentation-sqlalchemy==0.47b0",
+]
+
+[tool.uvicorn]
+factory = false

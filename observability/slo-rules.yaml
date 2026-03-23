@@ -1,0 +1,153 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: supply-slo-rules
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+
+    # -------------------------------------------------------
+    # SLO 1: Worker event processing lag
+    # Target: p95 lag < 30 seconds, 99.5% of the time
+    # SLI: supply_worker_lag_p95_seconds (gauge from worker)
+    # -------------------------------------------------------
+    - name: supply.worker.slo
+      interval: 30s
+      rules:
+
+        # Is the current p95 lag within the 30s target?
+        - record: supply:worker_lag_slo:good
+          expr: |
+            (supply_worker_lag_p95_seconds{service="supply-worker"} < 30) or
+            (0 * supply_worker_lag_p95_seconds{service="supply-worker"})
+
+        # Raw SLI: 1 = good, 0 = bad
+        - record: supply:worker_lag_sli:ratio_rate5m
+          expr: |
+            avg_over_time(
+              (supply_worker_lag_p95_seconds{service="supply-worker"} < bool 30)[5m:30s]
+            )
+
+        # 30-day error budget remaining (starts at 1.0 = 100%)
+        - record: supply:worker_lag_slo:error_budget_remaining
+          expr: |
+            1 - (
+              1 - avg_over_time(
+                (supply_worker_lag_p95_seconds{service="supply-worker"} < bool 30)[30d:5m]
+              )
+            ) / (1 - 0.995)
+
+    # -------------------------------------------------------
+    # SLO 2: Worker availability (pod up)
+    # Target: worker is running 99.9% of the time
+    # SLI: kube_deployment_status_replicas_available
+    # -------------------------------------------------------
+    - name: supply.worker.availability.slo
+      interval: 30s
+      rules:
+
+        - record: supply:worker_availability_sli:ratio_rate5m
+          expr: |
+            avg_over_time(
+              (kube_deployment_status_replicas_available{
+                namespace="supply",
+                deployment="supply-worker"
+              } >= bool 1)[5m:30s]
+            )
+
+        - record: supply:worker_availability_slo:error_budget_remaining
+          expr: |
+            1 - (
+              1 - avg_over_time(
+                (kube_deployment_status_replicas_available{
+                  namespace="supply",
+                  deployment="supply-worker"
+                } >= bool 1)[30d:5m]
+              )
+            ) / (1 - 0.999)
+
+    # -------------------------------------------------------
+    # SLO 3: Event processing throughput
+    # SLI: rate of events_processed_total
+    # (informational — used in dashboard, no hard SLO target)
+    # -------------------------------------------------------
+    - name: supply.worker.throughput
+      interval: 30s
+      rules:
+        - record: supply:worker_events_processed:rate5m
+          expr: |
+            rate(supply_worker_events_processed_total{service="supply-worker"}[5m])
+
+    # -------------------------------------------------------
+    # Burn-rate alerts (multi-window, multi-burn-rate)
+    # Fires when error budget is burning too fast to survive 30 days
+    # -------------------------------------------------------
+    - name: supply.slo.alerts
+      rules:
+
+        # Fast burn: consuming 14x budget (triggers in ~1 hour)
+        - alert: SupplyWorkerLagSLOFastBurn
+          expr: |
+            supply:worker_lag_sli:ratio_rate5m < (1 - 0.995 * 14)
+          for: 2m
+          labels:
+            severity: critical
+            service: supply-worker
+            slo: worker-lag
+          annotations:
+            summary: "Supply worker lag SLO fast burn"
+            description: >
+              Worker p95 lag SLO is burning error budget at 14x the sustainable
+              rate. Current SLI: {{ $value | humanizePercentage }}.
+              At this rate the 30-day error budget will be exhausted in ~1 hour.
+            runbook: "https://github.com/your-org/supply-ops-sre-capstone/blob/main/docs/runbooks/worker-lag.md"
+
+        # Slow burn: consuming 2x budget (triggers after ~3 days)
+        - alert: SupplyWorkerLagSLOSlowBurn
+          expr: |
+            supply:worker_lag_sli:ratio_rate5m < (1 - 0.995 * 2)
+          for: 15m
+          labels:
+            severity: warning
+            service: supply-worker
+            slo: worker-lag
+          annotations:
+            summary: "Supply worker lag SLO slow burn"
+            description: >
+              Worker p95 lag SLO is burning error budget at 2x the sustainable
+              rate. Current SLI: {{ $value | humanizePercentage }}.
+            runbook: "https://github.com/your-org/supply-ops-sre-capstone/blob/main/docs/runbooks/worker-lag.md"
+
+        # Worker down alert
+        - alert: SupplyWorkerDown
+          expr: |
+            kube_deployment_status_replicas_available{
+              namespace="supply",
+              deployment="supply-worker"
+            } < 1
+          for: 1m
+          labels:
+            severity: critical
+            service: supply-worker
+          annotations:
+            summary: "Supply worker has no available replicas"
+            description: >
+              The supply-worker deployment in namespace supply has 0 available
+              replicas. Events are not being processed.
+            runbook: "https://github.com/your-org/supply-ops-sre-capstone/blob/main/docs/runbooks/worker-down.md"
+
+        # Backlog building up
+        - alert: SupplyWorkerBacklogHigh
+          expr: |
+            supply_worker_backlog_total{service="supply-worker"} > 100
+          for: 5m
+          labels:
+            severity: warning
+            service: supply-worker
+          annotations:
+            summary: "Supply worker event backlog is high"
+            description: >
+              Worker backlog has been above 100 events for 5 minutes.
+              Current backlog: {{ $value }} events.

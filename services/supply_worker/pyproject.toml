@@ -1,0 +1,15 @@
+[project]
+name = "supply-worker"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "sqlalchemy==2.0.34",
+  "psycopg[binary]==3.2.2",
+  "prometheus-client==0.20.0",
+  "opentelemetry-api==1.26.0",
+  "opentelemetry-sdk==1.26.0",
+  "opentelemetry-exporter-otlp==1.26.0",
+]
+
+[project.scripts]
+supply-worker = "worker.main:main"

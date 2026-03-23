@@ -1,0 +1,124 @@
+# kube-prometheus-stack values for supply-ops-sre-capstone
+# Installed in: monitoring namespace
+# Access: kubectl port-forward
+
+# -------------------------------------------------------
+# Grafana
+# -------------------------------------------------------
+grafana:
+  enabled: true
+  adminPassword: "supply-demo-admin"   # change this if you care, fine for a demo
+
+  service:
+    type: ClusterIP   # accessed via port-forward, no LoadBalancer cost
+
+  # Pre-load our custom SLO dashboard
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: supply
+          orgId: 1
+          folder: "Supply SRE"
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/supply
+
+  dashboardsConfigMaps:
+    supply: "supply-slo-dashboard"
+
+  grafana.ini:
+    server:
+      root_url: "http://localhost:3000"
+
+# -------------------------------------------------------
+# Prometheus
+# -------------------------------------------------------
+prometheus:
+  enabled: true
+
+  prometheusSpec:
+    # Pick up any ServiceMonitor in any namespace
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorNamespaceSelector: {}
+    serviceMonitorSelector: {}
+
+    # Pick up our custom PrometheusRule resources
+    ruleSelectorNilUsesHelmValues: false
+    ruleNamespaceSelector: {}
+    ruleSelector: {}
+
+    retention: 7d
+    retentionSize: "4GB"
+
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
+# -------------------------------------------------------
+# Alertmanager
+# -------------------------------------------------------
+alertmanager:
+  enabled: true
+
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by: ["alertname", "service"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 1h
+      receiver: "null"
+      routes:
+        - matchers:
+            - name: alertname
+              value: Watchdog
+          receiver: "null"
+        - matchers:
+            - name: severity
+              value: critical
+          receiver: "slack-placeholder"
+    receivers:
+      - name: "null"
+      - name: "slack-placeholder"
+        # Replace with real Slack webhook when you have one:
+        # slack_configs:
+        #   - api_url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+        #     channel: "#supply-alerts"
+        #     title: '{{ .GroupLabels.alertname }}'
+        #     text: '{{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+
+# -------------------------------------------------------
+# Node exporter + kube-state-metrics (keep defaults, good for demo)
+# -------------------------------------------------------
+nodeExporter:
+  enabled: true
+
+kubeStateMetrics:
+  enabled: true
+
+# -------------------------------------------------------
+# Disable components that don't apply to EKS
+# (these scrape kubelets directly which needs extra EKS config)
+# -------------------------------------------------------
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeProxy:
+  enabled: false
