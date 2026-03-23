@@ -78,7 +78,7 @@ spec:
       rules:
         - record: supply:worker_events_processed:rate5m
           expr: |
-            rate(supply_worker_events_processed_total{service="supply-worker"}[5m])
+            rate(events_processed_total{service="supply-worker"}[5m])
 
     # -------------------------------------------------------
     # Burn-rate alerts (multi-window, multi-burn-rate)
